@@ -1,0 +1,90 @@
+name: Netdemo change ticket
+
+# Jira Automation sends repository_dispatch when a ticket starts or closes:
+#   POST /repos/OWNER/REPO/dispatches
+#   {"event_type": "cr-start", "client_payload": {"ticket": "CR-123", "assignee": "jsmith"}}
+#   {"event_type": "cr-end",   "client_payload": {"ticket": "CR-123"}}
+# workflow_dispatch lets you do the same by hand from the Actions tab.
+on:
+  repository_dispatch:
+    types: [cr-start, cr-end]
+  workflow_dispatch:
+    inputs:
+      action:
+        type: choice
+        options: [start, end]
+      ticket:
+        description: Ticket key, e.g. CR-123
+        required: true
+      assignee:
+        description: Engineer's username (start only)
+        required: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: netdemo
+  cancel-in-progress: false
+
+jobs:
+  ticket:
+    runs-on: self-hosted
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: netdemo
+    env:
+      ACTION: ${{ github.event.inputs.action || (github.event.action == 'cr-start' && 'start' || 'end') }}
+      TICKET: ${{ github.event.inputs.ticket || github.event.client_payload.ticket }}
+      ASSIGNEE: ${{ github.event.inputs.assignee || github.event.client_payload.assignee }}
+      COMMIT_SUFFIX: " [skip ci]"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate input
+        run: |
+          [[ "$TICKET" =~ ^[A-Z][A-Z0-9]*-[0-9]+$ ]] || { echo "Bad ticket key: $TICKET"; exit 1; }
+          [[ "$ACTION" == end || "$ASSIGNEE" =~ ^[a-z0-9._-]+$ ]] || { echo "Bad assignee: $ASSIGNEE"; exit 1; }
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Sweep so the snapshot is current
+        run: |
+          ./netdemo.py fetch
+          ./commit_changes.sh
+
+      - name: Record ticket and tag snapshot
+        run: |
+          ./netdemo.py ticket "$ACTION" "$TICKET" ${ASSIGNEE:+--assignee "$ASSIGNEE"}
+          git add tickets
+          git commit -q -m "$TICKET $ACTION [skip ci]"
+
+      - name: Change report
+        if: env.ACTION == 'end'
+        run: |
+          mkdir -p reports
+          ./netdemo.py report "$TICKET" --to HEAD > "reports/$TICKET.md"
+          cat "reports/$TICKET.md" >> "$GITHUB_STEP_SUMMARY"
+          git add reports
+          git commit -q -m "$TICKET change report [skip ci]"
+
+      - name: Push and tag
+        # Tag after rebasing so the tag points at the commit that lands on main.
+        run: |
+          tag="$TICKET-$([[ $ACTION == start ]] && echo pre || echo post)"
+          for i in 1 2 3; do
+            if git pull -q --rebase origin main; then
+              sha=$(git log -1 --format=%H --fixed-strings --grep="$TICKET $ACTION [skip ci]")
+              git tag -f "$tag" "$sha"
+              git push -q origin HEAD:main && git push -q -f origin "refs/tags/$tag" && {
+                echo "Tagged $tag at ${sha:0:7}" >> "$GITHUB_STEP_SUMMARY"; exit 0; }
+            fi
+            sleep $((i * 5))
+          done
+          exit 1

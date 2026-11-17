@@ -1,0 +1,5 @@
+# One regex per line. A file whose ONLY changed lines all match these
+# patterns is treated as unchanged and not committed. Applies to every device.
+^! Fetched:
+^! Last configuration change at
+^! NVRAM config last updated at

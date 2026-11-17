@@ -1,0 +1,49 @@
+name: Netdemo config sweep
+
+# Periodic full backup of every device. Catches changes made outside tickets.
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Shared with the ticket workflow so only one job touches the backups at a time.
+concurrency:
+  group: netdemo
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    runs-on: self-hosted
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: netdemo
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch configs (Oxidized stand-in)
+        run: ./netdemo.py fetch
+
+      - name: Commit real changes only
+        env:
+          COMMIT_SUFFIX: " [skip ci]"
+        run: ./commit_changes.sh | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Push
+        run: |
+          for i in 1 2 3; do
+            git pull -q --rebase origin main && git push -q origin HEAD:main && exit 0
+            sleep $((i * 5))
+          done
+          exit 1
+
+      - name: Audit for unexplained changes
+        run: ./netdemo.py audit >> "$GITHUB_STEP_SUMMARY"

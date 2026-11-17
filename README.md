@@ -33,3 +33,35 @@ Then trigger it with:
 ```bash
 git commit --allow-empty -m "trigger runner" && git push
 ```
+
+## Network config backup demo (`netdemo/`)
+
+Simulates backing up switch configs on every change ticket and on a schedule.
+
+- `netdemo/netdemo.py`: simulated switch fleet (lives in `~/netdemo-sim`), a
+  fetcher standing in for Oxidized, and the ticket/report/audit tools.
+- `netdemo/commit_changes.sh`: commits only real changes, one commit per device,
+  attributed to the user who made it. Files where only the lines matching
+  `netdemo/ignore-patterns.txt` changed (timestamps) are discarded.
+- `netdemo-sweep.yml`: full backup every 15 minutes, plus an audit of changes
+  not covered by any ticket.
+- `netdemo-ticket.yml`: on ticket start it sweeps and tags `CR-123-pre`; on
+  ticket end it sweeps, tags `CR-123-post`, and writes `netdemo/reports/CR-123.md`.
+
+Try it:
+
+```bash
+netdemo/netdemo.py init --count 200
+gh workflow run netdemo-ticket.yml -f action=start -f ticket=CR-1 -f assignee=jsmith
+netdemo/netdemo.py change --user jsmith --count 3
+netdemo/netdemo.py change --user mlopez --device sw-access-020
+gh workflow run netdemo-ticket.yml -f action=end -f ticket=CR-1
+```
+
+From Jira Automation, send a web request instead of `gh workflow run`:
+
+```
+POST https://api.github.com/repos/OWNER/REPO/dispatches
+{"event_type": "cr-start", "client_payload": {"ticket": "CR-1", "assignee": "jsmith"}}
+{"event_type": "cr-end",   "client_payload": {"ticket": "CR-1"}}
+```
