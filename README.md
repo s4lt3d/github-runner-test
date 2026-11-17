@@ -7,9 +7,9 @@ the counter below and commits it back with `[skip ci]` so it doesn't retrigger i
 ## Runner stats
 
 <!-- runner-stats:start -->
-- Run count: **0**
-- Last ran: **never**
-- Triggered by commit: `-`
+- Run count: **1**
+- Last ran: **2026-11-17 04:56:55 UTC**
+- Triggered by commit: `028bfef`
 <!-- runner-stats:end -->
 
 ## How it works
